@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         晋江文学城手机版·现代化界面改造
 // @namespace    https://wap.jjwxc.net/
-// @version      1.0.0
-// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式适配、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读等入口；支持解除复制/右键限制。
+// @version      1.1.0
+// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式适配、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区等入口；支持解除复制/右键限制。
 // @author       WorkBuddy
 // @license      MIT
 // @match        https://wap.jjwxc.net/*
@@ -29,7 +29,9 @@
         rmAdvSearch: true,   // 去除 高级搜索 按钮
         rmIncome:    true,   // 去除 千字收益榜 按钮
         rmForum:     true,   // 去除 晋江论坛 按钮
-        rmCat:       true    // 去除 小书喵悦读 按钮
+        rmCat:       true,   // 去除 小书喵悦读 按钮
+        rmKingRank:  true,   // 去除 本书霸王票读者排行
+        rmComment:   true    // 去除 评论区
     };
 
     function loadCfg() {
@@ -260,8 +262,59 @@
         }
     };
 
+    /* 区块清理器：非链接类的整块内容（幂等，可重复执行） */
+    var BLOCK_REMOVERS = {
+        /* 本书霸王票读者排行：详情页 /book2/xxx 的排行区块 */
+        rmKingRank: function () {
+            var anchors = [];
+            var ks = document.getElementById('kingSort');
+            if (ks) anchors.push(ks);
+            var tds = document.querySelectorAll('td');
+            for (var i = 0; i < tds.length; i++) {
+                var t = tds[i].textContent.trim();
+                if (t === '本书霸王票读者排行' || t.indexOf('本书霸王票读者排行') === 0) {
+                    anchors.push(tds[i]);
+                }
+            }
+            for (var j = 0; j < anchors.length; j++) {
+                var table = closestTag(anchors[j], 'TABLE');
+                if (table) {
+                    var block = table.parentElement;
+                    if (block && block.tagName === 'DIV') block.remove();
+                    else table.remove();
+                } else if (anchors[j].tagName === 'TD' && anchors[j].parentElement) {
+                    anchors[j].parentElement.remove();
+                }
+            }
+        },
+        /* 评论区：正文阅读页评论表单 + 最新评论列表 */
+        rmComment: function () {
+            var forms = document.querySelectorAll('form[name="review"]');
+            for (var i = 0; i < forms.length; i++) {
+                var ul = forms[i].parentElement;
+                forms[i].remove();
+                if (ul && ul.tagName === 'UL' && !ul.textContent.trim() && !ul.querySelector('li,form')) {
+                    ul.remove();
+                }
+            }
+            var lists = document.querySelectorAll('#comment_list_new');
+            for (var j = 0; j < lists.length; j++) {
+                lists[j].remove();
+            }
+        }
+    };
+
+    /* 向上查找指定标签的祖先元素（兼容旧浏览器） */
+    function closestTag(el, tag) {
+        var node = el;
+        tag = String(tag).toUpperCase();
+        while (node && node.tagName !== tag) node = node.parentElement;
+        return node;
+    }
+
     function anyCleanerOn() {
         for (var k in REMOVERS) if (cfg[k]) return true;
+        for (var b in BLOCK_REMOVERS) if (cfg[b]) return true;
         return false;
     }
 
@@ -301,6 +354,10 @@
                 d.remove();
             }
         }
+        /* 区块清理器 */
+        for (var bk in BLOCK_REMOVERS) {
+            if (cfg[bk]) BLOCK_REMOVERS[bk]();
+        }
     }
 
     /* 动态渲染兜底：页面有 AJAX 内容，防抖后重跑清理（幂等） */
@@ -329,7 +386,9 @@
         { key: 'rmAdvSearch', label: '高级搜索 按钮' },
         { key: 'rmIncome',    label: '千字收益榜 按钮' },
         { key: 'rmForum',     label: '晋江论坛 按钮' },
-        { key: 'rmCat',       label: '小书喵悦读 按钮' }
+        { key: 'rmCat',       label: '小书喵悦读 按钮' },
+        { key: 'rmKingRank',  label: '本书霸王票读者排行', desc: '书籍详情页的霸王票排行区块' },
+        { key: 'rmComment',   label: '评论区',             desc: '阅读页评论表单 + 最新评论列表' }
     ];
 
     var GEAR_SVG = '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h.09a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"></path></svg>';
