@@ -1,10 +1,13 @@
 // ==UserScript==
 // @name         晋江文学城手机版·现代化界面改造
 // @namespace    https://wap.jjwxc.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式适配、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏等入口；支持解除复制/右键限制。
 // @author       WorkBuddy
 // @license      MIT
+// @downloadURL  https://cdn.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js
+// @supportURL   https://github.com/Ningcaichen1998/jjwxc-modern-userscript
 // @match        https://wap.jjwxc.net/*
 // @match        http://wap.jjwxc.net/*
 // @grant        GM_getValue
