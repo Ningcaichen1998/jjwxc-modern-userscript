@@ -30,9 +30,13 @@
 ## 📦 安装
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/)（或 Violentmonkey）浏览器扩展
-2. 点击下方链接安装脚本：
+2. 点击下方任一链接安装脚本：
 
-   **[👉 点击安装 jjwxc-modern.user.js](https://raw.githubusercontent.com/Ningcaichen1998/jjwxc-modern-userscript/main/jjwxc-modern.user.js)**
+   **[👉 点击安装 jjwxc-modern.user.js（GitHub 直链）](https://raw.githubusercontent.com/Ningcaichen1998/jjwxc-modern-userscript/main/jjwxc-modern.user.js)**
+
+   **[👉 备用安装（jsDelivr CDN，国内更稳定）](https://cdn.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js)**
+
+   > 若 GitHub 直链无法访问，请使用 jsDelivr 备用链接；或直接下载仓库中的 `jjwxc-modern.user.js`，在 Tampermonkey 中新建脚本粘贴保存。
 
 3. 打开 [wap.jjwxc.net](https://wap.jjwxc.net/)，页面右下角出现 ⚙️ 悬浮按钮即安装成功
 
