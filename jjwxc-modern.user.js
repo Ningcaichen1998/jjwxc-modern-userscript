@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         晋江文学城手机版·现代化界面改造
 // @namespace    https://wap.jjwxc.net/
-// @version      1.2.1
-// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式适配、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏等入口；支持解除复制/右键限制。
+// @version      1.2.2
+// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式（跟随系统/手动浅色/深色）、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏等入口；支持解除复制/右键限制。
 // @author       WorkBuddy
 // @license      MIT
 // @downloadURL  https://cdn.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js
@@ -26,6 +26,7 @@
 
     var DEFAULT_CFG = {
         modernize:   true,   // 现代化界面
+        theme:       'auto', // 主题：auto=跟随系统 / light=浅色 / dark=深色
         unblock:     false,  // 解除复制/右键限制
         rmApp:       true,   // 去除 APP 按钮
         rmFeedback:  true,   // 去除 反馈 按钮
@@ -47,7 +48,10 @@
             if (raw) {
                 var obj = JSON.parse(raw);
                 for (k in DEFAULT_CFG) {
-                    if (Object.prototype.hasOwnProperty.call(obj, k)) cfg[k] = !!obj[k];
+                    if (Object.prototype.hasOwnProperty.call(obj, k)) {
+                        /* 布尔字段转布尔；字符串字段（如 theme）保留原值 */
+                        cfg[k] = (typeof DEFAULT_CFG[k] === 'boolean') ? !!obj[k] : obj[k];
+                    }
                 }
             }
         } catch (e) { /* 忽略损坏的配置 */ }
@@ -94,12 +98,12 @@
         '  --jjj-link:#c2454f;--jjj-radius:14px;',
         '  --jjj-shadow:0 1px 2px rgba(16,17,20,.04),0 8px 24px rgba(16,17,20,.06);',
         '}',
-        '@media(prefers-color-scheme:dark){:root{',
+        ':root[data-jj-theme="dark"]{',
         '  --jjj-bg:#131417;--jjj-card:#1e2025;--jjj-text:#e3e5e9;--jjj-text2:#9298a2;',
         '  --jjj-line:rgba(255,255,255,.09);--jjj-primary:#e0515d;--jjj-primary-weak:rgba(224,81,93,.14);',
         '  --jjj-link:#e58087;',
         '  --jjj-shadow:0 1px 2px rgba(0,0,0,.35),0 8px 24px rgba(0,0,0,.30);',
-        '}}',
+        '}',
         'html{-webkit-text-size-adjust:100%}',
         'body{',
         '  margin:0 auto!important;max-width:800px;',
@@ -206,6 +210,26 @@
 
     var modernStyleEl = null;
     var unblockStyleEl = null;
+
+    /* ---- 主题：auto=跟随系统 / light / dark ---- */
+    var mqDark = null;
+    var panelVarsEl = null;   // 设置面板 .jjj-vars 元素（用于同步深色）
+
+    function isSystemDark() {
+        if (typeof matchMedia !== 'function') return false;
+        if (!mqDark) mqDark = matchMedia('(prefers-color-scheme: dark)');
+        return !!(mqDark && mqDark.matches);
+    }
+
+    function isDarkValue() {
+        return cfg.theme === 'dark' || (cfg.theme !== 'light' && isSystemDark());
+    }
+
+    function applyTheme() {
+        var v = isDarkValue() ? 'dark' : 'light';
+        if (document.documentElement) document.documentElement.setAttribute('data-jj-theme', v);
+        if (panelVarsEl) panelVarsEl.setAttribute('data-jj-theme', v);
+    }
 
     function applyModern(on) {
         if (on) {
@@ -419,10 +443,10 @@
         '  --p-bg:#ffffff;--p-text:#27292e;--p-text2:#82868e;--p-line:#f0f0f3;',
         '  --p-accent:#d43a47;--p-accent-weak:rgba(212,58,71,.09);--p-soft:#fafafa;',
         '}',
-        '@media(prefers-color-scheme:dark){.jjj-vars{',
+        '.jjj-vars[data-jj-theme="dark"]{',
         '  --p-bg:#1e2025;--p-text:#e3e5e9;--p-text2:#9298a2;--p-line:#2a2d33;',
         '  --p-accent:#e0515d;--p-accent-weak:rgba(224,81,93,.15);--p-soft:#23262b;',
-        '}}',
+        '}',
         '.fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));width:44px;height:44px;border-radius:50%;',
         '  background:rgba(255,255,255,.88);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);',
         '  border:1px solid rgba(0,0,0,.08);box-shadow:0 4px 18px rgba(0,0,0,.14);',
@@ -458,6 +482,9 @@
         '  background:#fff;top:3px;left:3px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}',
         '.sw input:checked+.knob{background:var(--p-accent)}',
         '.sw input:checked+.knob::before{transform:translateX(18px)}',
+        '.seg{display:flex;background:var(--p-soft);border-radius:8px;padding:2px;gap:2px;flex:none;border:1px solid var(--p-line)}',
+        '.seg button{font-size:12px;padding:4px 10px;border-radius:6px;border:none;background:transparent;color:var(--p-text2);cursor:pointer;line-height:1.4}',
+        '.seg button.on{background:var(--p-accent);color:#fff}',
         '.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));',
         '  transform:translateX(-50%) translateY(8px);background:rgba(30,32,36,.93);color:#fff;',
         '  font-size:13px;padding:8px 16px;border-radius:999px;opacity:0;pointer-events:none;',
@@ -491,6 +518,16 @@
                 (it.desc ? '<div class="d">' + it.desc + '</div>' : '') +
                 '</div><label class="sw"><input type="checkbox" data-key="' + it.key + '"' +
                 (cfg[it.key] ? ' checked' : '') + '><span class="knob"></span></label></div>');
+            /* 现代化界面之后插入主题三选一 */
+            if (it.key === 'modernize') {
+                html.push('<div class="row"><div><div class="t">主题模式</div>' +
+                    '<div class="d">浅色 / 深色 / 跟随系统</div></div>' +
+                    '<div class="seg" id="themeSeg">' +
+                    '<button data-theme="auto">自动</button>' +
+                    '<button data-theme="light">浅色</button>' +
+                    '<button data-theme="dark">深色</button>' +
+                    '</div></div>');
+            }
         }
         html.push('<div class="foot">提示：重新开启「隐藏元素」即时生效；关闭后刷新页面即可恢复对应按钮。</div>');
         html.push('</div>');
@@ -502,6 +539,31 @@
         var fab = $('fab'), mask = $('mask'), panel = $('panel'),
             close = $('close'), toast = $('toast');
         var toastTimer = null;
+
+        /* 主题：面板变量元素引用 + 三选一按钮 */
+        panelVarsEl = root.querySelector('.jjj-vars');
+        applyTheme();
+        var themeSeg = $('themeSeg');
+        var themeBtns = themeSeg ? themeSeg.querySelectorAll('button') : [];
+        function refreshThemeSeg() {
+            for (var bi = 0; bi < themeBtns.length; bi++) {
+                themeBtns[bi].classList.toggle('on', themeBtns[bi].getAttribute('data-theme') === cfg.theme);
+            }
+        }
+        refreshThemeSeg();
+        for (var bi2 = 0; bi2 < themeBtns.length; bi2++) {
+            (function (btn) {
+                btn.addEventListener('click', function () {
+                    var t = btn.getAttribute('data-theme');
+                    if (!t || t === cfg.theme) return;
+                    cfg.theme = t;
+                    saveCfg(cfg);
+                    applyTheme();
+                    refreshThemeSeg();
+                    showToast(t === 'dark' ? '已切换到深色模式' : (t === 'light' ? '已切换到浅色模式' : '已切换为跟随系统'));
+                });
+            })(themeBtns[bi2]);
+        }
 
         function showToast(msg) {
             toast.textContent = msg;
@@ -563,11 +625,23 @@
 
     /* ================= 启动 ================= */
 
-    /* document-start：尽早注入样式，避免样式闪烁 */
+    /* document-start：尽早应用主题与样式，避免闪烁 */
+    applyTheme();
     applyModern(cfg.modernize);
     if (cfg.unblock) applyUnblock(true);
 
+    /* 系统深色模式变化时，若主题为「自动」则实时跟随 */
+    if (typeof matchMedia === 'function') {
+        try {
+            var mqChange = matchMedia('(prefers-color-scheme: dark)');
+            var onMqChange = function () { if (cfg.theme === 'auto') applyTheme(); };
+            if (mqChange.addEventListener) mqChange.addEventListener('change', onMqChange);
+            else if (mqChange.addListener) mqChange.addListener(onMqChange);
+        } catch (e) {}
+    }
+
     function onReady() {
+        applyTheme();
         if (cfg.unblock) applyUnblock(true);
         cleanElements();
         buildPanel();
