@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         晋江文学城手机版·现代化界面改造
 // @namespace    https://wap.jjwxc.net/
-// @version      1.1.0
-// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式适配、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区等入口；支持解除复制/右键限制。
+// @version      1.2.0
+// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式适配、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏等入口；支持解除复制/右键限制。
 // @author       WorkBuddy
 // @license      MIT
 // @match        https://wap.jjwxc.net/*
@@ -31,7 +31,8 @@
         rmForum:     true,   // 去除 晋江论坛 按钮
         rmCat:       true,   // 去除 小书喵悦读 按钮
         rmKingRank:  true,   // 去除 本书霸王票读者排行
-        rmComment:   true    // 去除 评论区
+        rmComment:   true,   // 去除 评论区
+        rmActionBar: true    // 去除 收藏支持安利栏
     };
 
     function loadCfg() {
@@ -301,6 +302,20 @@
             for (var j = 0; j < lists.length; j++) {
                 lists[j].remove();
             }
+        },
+        /* 收藏支持安利栏：详情页 /book2/xxx 的收藏/霸王票/灌溉营养液/空投月石/看书评/安利TA/书签/分享 整条操作栏 */
+        rmActionBar: function () {
+            var anchors = [];
+            var links = document.querySelectorAll('a.novel_data_div');
+            for (var i = 0; i < links.length; i++) anchors.push(links[i]);
+            var share = document.getElementById('shareButton');
+            if (share) anchors.push(share);
+            for (var j = 0; j < anchors.length; j++) {
+                var li = closestTag(anchors[j], 'LI');
+                if (li && li.textContent.indexOf('收藏') !== -1 && li.textContent.indexOf('霸王票') !== -1) {
+                    li.remove();
+                }
+            }
         }
     };
 
@@ -388,7 +403,8 @@
         { key: 'rmForum',     label: '晋江论坛 按钮' },
         { key: 'rmCat',       label: '小书喵悦读 按钮' },
         { key: 'rmKingRank',  label: '本书霸王票读者排行', desc: '书籍详情页的霸王票排行区块' },
-        { key: 'rmComment',   label: '评论区',             desc: '阅读页评论表单 + 最新评论列表' }
+        { key: 'rmComment',   label: '评论区',             desc: '阅读页评论表单 + 最新评论列表' },
+        { key: 'rmActionBar', label: '收藏支持安利栏',     desc: '收藏/霸王票/营养液/空投月石/书评/安利/书签/分享' }
     ];
 
     var GEAR_SVG = '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h.09a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"></path></svg>';
