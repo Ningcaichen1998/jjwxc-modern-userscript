@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         晋江文学城手机版·现代化界面改造
 // @namespace    https://wap.jjwxc.net/
-// @version      1.2.2
-// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式（跟随系统/手动浅色/深色）、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏等入口；支持解除复制/右键限制。
+// @version      1.3.0
+// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式（跟随系统/手动浅色/深色）、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏、打开App引导图等入口；支持解除复制/右键限制、自定义悬浮按钮透明度。
 // @author       WorkBuddy
 // @license      MIT
 // @downloadURL  https://cdn.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js
@@ -27,6 +27,7 @@
     var DEFAULT_CFG = {
         modernize:   true,   // 现代化界面
         theme:       'auto', // 主题：auto=跟随系统 / light=浅色 / dark=深色
+        fabOpacity:  100,    // 悬浮设置按钮不透明度（20-100）
         unblock:     false,  // 解除复制/右键限制
         rmApp:       true,   // 去除 APP 按钮
         rmFeedback:  true,   // 去除 反馈 按钮
@@ -36,7 +37,8 @@
         rmCat:       true,   // 去除 小书喵悦读 按钮
         rmKingRank:  true,   // 去除 本书霸王票读者排行
         rmComment:   true,   // 去除 评论区
-        rmActionBar: true    // 去除 收藏支持安利栏
+        rmActionBar: true,   // 去除 收藏支持安利栏
+        rmOpenApp:   true    // 去除 open_app_img（打开App引导图）
     };
 
     function loadCfg() {
@@ -49,8 +51,10 @@
                 var obj = JSON.parse(raw);
                 for (k in DEFAULT_CFG) {
                     if (Object.prototype.hasOwnProperty.call(obj, k)) {
-                        /* 布尔字段转布尔；字符串字段（如 theme）保留原值 */
-                        cfg[k] = (typeof DEFAULT_CFG[k] === 'boolean') ? !!obj[k] : obj[k];
+                        /* 按字段类型规范化：布尔转布尔、数字转 Number、字符串保留 */
+                        if (typeof DEFAULT_CFG[k] === 'boolean') cfg[k] = !!obj[k];
+                        else if (typeof DEFAULT_CFG[k] === 'number') cfg[k] = Number(obj[k]);
+                        else cfg[k] = obj[k];
                     }
                 }
             }
@@ -214,6 +218,7 @@
     /* ---- 主题：auto=跟随系统 / light / dark ---- */
     var mqDark = null;
     var panelVarsEl = null;   // 设置面板 .jjj-vars 元素（用于同步深色）
+    var fabEl = null;         // 悬浮齿轮按钮元素（用于设置透明度）
 
     function isSystemDark() {
         if (typeof matchMedia !== 'function') return false;
@@ -229,6 +234,15 @@
         var v = isDarkValue() ? 'dark' : 'light';
         if (document.documentElement) document.documentElement.setAttribute('data-jj-theme', v);
         if (panelVarsEl) panelVarsEl.setAttribute('data-jj-theme', v);
+    }
+
+    function applyFabOpacity() {
+        if (!fabEl) return;
+        var v = Number(cfg.fabOpacity);
+        if (!isFinite(v)) v = 100;
+        if (v < 20) v = 20;
+        if (v > 100) v = 100;
+        fabEl.style.opacity = String(v / 100);
     }
 
     function applyModern(on) {
@@ -343,6 +357,13 @@
                     li.remove();
                 }
             }
+        },
+        /* open_app_img：详情页作者信息区的「打开App」引导图（含 jjwxc:// 深链） */
+        rmOpenApp: function () {
+            var imgs = document.querySelectorAll('img.open_app_img, img[data-launche-app-url]');
+            for (var i = 0; i < imgs.length; i++) {
+                imgs[i].remove();
+            }
         }
     };
 
@@ -431,7 +452,8 @@
         { key: 'rmCat',       label: '小书喵悦读 按钮' },
         { key: 'rmKingRank',  label: '本书霸王票读者排行', desc: '书籍详情页的霸王票排行区块' },
         { key: 'rmComment',   label: '评论区',             desc: '阅读页评论表单 + 最新评论列表' },
-        { key: 'rmActionBar', label: '收藏支持安利栏',     desc: '收藏/霸王票/营养液/空投月石/书评/安利/书签/分享' }
+        { key: 'rmActionBar', label: '收藏支持安利栏',     desc: '收藏/霸王票/营养液/空投月石/书评/安利/书签/分享' },
+        { key: 'rmOpenApp',   label: '打开App引导图',      desc: '详情页作者信息区的 open_app_img 竖条图' }
     ];
 
     var GEAR_SVG = '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h.09a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"></path></svg>';
@@ -485,6 +507,7 @@
         '.seg{display:flex;background:var(--p-soft);border-radius:8px;padding:2px;gap:2px;flex:none;border:1px solid var(--p-line)}',
         '.seg button{font-size:12px;padding:4px 10px;border-radius:6px;border:none;background:transparent;color:var(--p-text2);cursor:pointer;line-height:1.4}',
         '.seg button.on{background:var(--p-accent);color:#fff}',
+        '.range{flex:none;width:118px;accent-color:var(--p-accent);cursor:pointer;margin:0}',
         '.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));',
         '  transform:translateX(-50%) translateY(8px);background:rgba(30,32,36,.93);color:#fff;',
         '  font-size:13px;padding:8px 16px;border-radius:999px;opacity:0;pointer-events:none;',
@@ -518,7 +541,7 @@
                 (it.desc ? '<div class="d">' + it.desc + '</div>' : '') +
                 '</div><label class="sw"><input type="checkbox" data-key="' + it.key + '"' +
                 (cfg[it.key] ? ' checked' : '') + '><span class="knob"></span></label></div>');
-            /* 现代化界面之后插入主题三选一 */
+            /* 现代化界面之后插入主题三选一 + 按钮透明度 */
             if (it.key === 'modernize') {
                 html.push('<div class="row"><div><div class="t">主题模式</div>' +
                     '<div class="d">浅色 / 深色 / 跟随系统</div></div>' +
@@ -527,6 +550,10 @@
                     '<button data-theme="light">浅色</button>' +
                     '<button data-theme="dark">深色</button>' +
                     '</div></div>');
+                html.push('<div class="row"><div><div class="t">按钮透明度</div>' +
+                    '<div class="d">悬浮齿轮按钮的不透明度</div></div>' +
+                    '<input type="range" class="range" id="fabOpacityRange" min="20" max="100" step="1" value="' +
+                    (typeof cfg.fabOpacity === 'number' ? cfg.fabOpacity : 100) + '"></div>');
             }
         }
         html.push('<div class="foot">提示：重新开启「隐藏元素」即时生效；关闭后刷新页面即可恢复对应按钮。</div>');
@@ -543,6 +570,17 @@
         /* 主题：面板变量元素引用 + 三选一按钮 */
         panelVarsEl = root.querySelector('.jjj-vars');
         applyTheme();
+        /* 悬浮按钮透明度 */
+        fabEl = $('fab');
+        applyFabOpacity();
+        var opacityRange = $('fabOpacityRange');
+        if (opacityRange) {
+            opacityRange.addEventListener('input', function () {
+                cfg.fabOpacity = Number(opacityRange.value);
+                saveCfg(cfg);
+                applyFabOpacity();
+            });
+        }
         var themeSeg = $('themeSeg');
         var themeBtns = themeSeg ? themeSeg.querySelectorAll('button') : [];
         function refreshThemeSeg() {
