@@ -870,7 +870,7 @@
                     '<button data-theme="dark">深色</button>' +
                     '</div></div>');
                 html.push('<div class="row"><div><div class="t">按钮透明度</div>' +
-                    '<div class="d">悬浮齿轮按钮的不透明度</div></div>' +
+                    '<div class="d">悬浮齿轮按钮的透明度</div></div>' +
                     '<input type="range" class="range" id="fabOpacityRange" min="20" max="100" step="1" value="' +
                     (typeof cfg.fabOpacity === 'number' ? cfg.fabOpacity : 100) + '"></div>');
             }
