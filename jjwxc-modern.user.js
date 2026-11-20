@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         晋江文学城手机版·现代化界面改造
 // @namespace    https://wap.jjwxc.net/
-// @version      1.3.0
-// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式（跟随系统/手动浅色/深色）、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏、打开App引导图等入口；支持解除复制/右键限制、自定义悬浮按钮透明度。
+// @version      1.4.0
+// @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式（跟随系统/手动浅色/深色）、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏、打开App引导图等入口；支持解除复制/右键限制、自定义悬浮按钮透明度；支持每日自动签到一次（登录后自动完成，可手动签到）。
 // @author       WorkBuddy
 // @license      MIT
 // @downloadURL  https://cdn.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js
@@ -13,6 +13,9 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      my.jjwxc.net
+// @connect      jjwxc.net
 // @run-at       document-start
 // @noframes
 // ==/UserScript==
@@ -38,7 +41,9 @@
         rmKingRank:  true,   // 去除 本书霸王票读者排行
         rmComment:   true,   // 去除 评论区
         rmActionBar: true,   // 去除 收藏支持安利栏
-        rmOpenApp:   true    // 去除 open_app_img（打开App引导图）
+        rmOpenApp:   true,   // 去除 open_app_img（打开App引导图）
+        autoSign:    true,   // 每日自动签到（每天最多一次）
+        signSilent:  false   // 签到成功时不弹提示（静默模式）
     };
 
     function loadCfg() {
@@ -438,7 +443,205 @@
         mo.observe(document.documentElement, { childList: true, subtree: true });
     }
 
-    /* ================= 三、设置面板（Shadow DOM 隔离） ================= */
+    /* ================= 三、每日自动签到 ================= */
+
+    /*
+     * 原理：晋江官方"去签到"入口就是 GET https://my.jjwxc.net/backend/signin.php（带登录 cookie）。
+     * 签到状态记录在 .jjwxc.net 域 cookie user_signin_days（格式：YYYYMMDD_readerid_1），
+     * wap.jjwxc.net 页面可直接读取；本地 GM 存储再做一层"每天最多请求一次"的兜底。
+     */
+
+    var SIGN_STORE_KEY = 'jjjSignState';
+    var SIGN_URL = 'https://my.jjwxc.net/backend/signin.php';
+
+    function getCookie(name) {
+        try {
+            var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+            return m ? decodeURIComponent(m[1]) : null;
+        } catch (e) { return null; }
+    }
+
+    function todayStr() {
+        var d = new Date();
+        var m = d.getMonth() + 1, day = d.getDate();
+        return d.getFullYear() +
+            (m < 10 ? '0' + m : '' + m) +
+            (day < 10 ? '0' + day : '' + day);
+    }
+
+    function loadSignState() {
+        try {
+            var raw = storeGet(SIGN_STORE_KEY, null);
+            if (raw) {
+                var obj = JSON.parse(raw);
+                if (obj && typeof obj === 'object') return obj;
+            }
+        } catch (e) {}
+        return {};
+    }
+
+    function saveSignState(st) {
+        storeSet(SIGN_STORE_KEY, JSON.stringify(st));
+    }
+
+    /* 是否已登录（readerid + ubuntu 双 cookie） */
+    function isSignedIn() {
+        return !!(getCookie('readerid') && getCookie('ubuntu'));
+    }
+
+    /* 官方 cookie 是否显示今天已签到（同名 cookie 可能多份：逐个检查） */
+    function serverSignedToday() {
+        var readerid = getCookie('readerid');
+        if (!readerid) return false;
+        var found = [];
+        try {
+            var pairs = document.cookie.split(';');
+            for (var i = 0; i < pairs.length; i++) {
+                var p = pairs[i];
+                var eq = p.indexOf('=');
+                if (eq === -1) continue;
+                if (p.slice(0, eq).replace(/^\s+|\s+$/g, '') !== 'user_signin_days') continue;
+                found.push(decodeURIComponent(p.slice(eq + 1).trim()));
+            }
+        } catch (e) {}
+        var today = todayStr();
+        for (var j = 0; j < found.length; j++) {
+            var parts = found[j].split('_');
+            if (parts.length >= 3 && parts[0] === today && parts[1] === readerid && parts[2] === '1') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /* 签到状态汇总（供 UI 展示） */
+    function signStatusInfo() {
+        if (!isSignedIn()) {
+            return { code: 'guest', text: '未登录', tip: '登录晋江账号后可自动签到' };
+        }
+        var today = todayStr();
+        if (serverSignedToday()) {
+            return { code: 'done', text: '今日已签', tip: '官方确认：今日已签到' };
+        }
+        var st = loadSignState();
+        if (st.date === today && st.ok) {
+            return { code: 'done', text: '今日已签', tip: '本脚本今日已完成签到' };
+        }
+        if (st.date === today) {
+            return { code: 'tried', text: '已尝试', tip: st.msg || '今日已请求过，结果未确认' };
+        }
+        return { code: 'none', text: '未签到', tip: '开启自动签到后，打开页面即自动完成' };
+    }
+
+    /* 发起签到请求（跨域，带 cookie） */
+    function requestSign(cb) {
+        if (typeof GM_xmlhttpRequest !== 'function') {
+            cb({ ok: false, msg: '当前脚本管理器不支持 GM_xmlhttpRequest' });
+            return;
+        }
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: SIGN_URL,
+            timeout: 15000,
+            headers: { 'Referer': 'https://wap.jjwxc.net/' },
+            onload: function (res) {
+                /* 稍等 Set-Cookie 写入 cookie jar 后再校验 */
+                setTimeout(function () {
+                    var finalUrl = res.finalUrl || '';
+                    var body = res.responseText || '';
+                    if (finalUrl.indexOf('login.php') !== -1 || body.indexOf('login.php') !== -1) {
+                        cb({ ok: false, msg: '登录已过期，请先重新登录晋江' });
+                        return;
+                    }
+                    if (serverSignedToday()) {
+                        cb({ ok: true, msg: '' });
+                        return;
+                    }
+                    /* 拿不到确认 cookie：按已请求处理，避免同日反复请求 */
+                    cb({ ok: false, tried: true, msg: '已发送签到请求，请以官网页面为准' });
+                }, 250);
+            },
+            onerror: function () {
+                cb({ ok: false, msg: '网络错误，签到请求失败' });
+            },
+            ontimeout: function () {
+                cb({ ok: false, msg: '签到请求超时' });
+            }
+        });
+    }
+
+    /* 执行签到：manual=true 为手动触发（无视静默提示） */
+    function doSign(manual) {
+        if (!isSignedIn()) {
+            toastMsg('签到：请先登录晋江账号');
+            return;
+        }
+        if (serverSignedToday()) {
+            var stOk = { date: todayStr(), reader: getCookie('readerid') || '', ok: true, msg: '' };
+            saveSignState(stOk);
+            updateSignUI();
+            toastMsg('今天已经签到过了');
+            return;
+        }
+        toastMsg('正在签到…');
+        var reader = getCookie('readerid') || '';
+        requestSign(function (r) {
+            saveSignState({
+                date: todayStr(),
+                reader: reader,
+                ok: !!r.ok,
+                tried: !!r.tried,
+                msg: r.msg || ''
+            });
+            updateSignUI();
+            if (r.ok) {
+                if (manual || !cfg.signSilent) toastMsg('签到成功，明天见 ✓');
+            } else {
+                toastMsg('签到：' + (r.msg || '未知结果'));
+            }
+        });
+    }
+
+    /* 每日自动签到：每个自然日至多发起一次请求 */
+    function autoSignOnce() {
+        if (!cfg.autoSign) return;
+        if (!isSignedIn()) return;                       /* 未登录：不请求 */
+        if (serverSignedToday()) {                       /* 官方已确认：同步本地状态即可 */
+            var st = loadSignState();
+            if (st.date !== todayStr() || !st.ok) {
+                saveSignState({ date: todayStr(), reader: getCookie('readerid') || '', ok: true, msg: '' });
+                updateSignUI();
+            }
+            return;
+        }
+        var local = loadSignState();
+        if (local.date === todayStr()) return;           /* 今天已尝试过：不重复请求 */
+        var reader = getCookie('readerid') || '';
+        requestSign(function (r) {
+            saveSignState({
+                date: todayStr(),
+                reader: reader,
+                ok: !!r.ok,
+                tried: !!r.tried,
+                msg: r.msg || ''
+            });
+            updateSignUI();
+            if (r.ok && !cfg.signSilent) toastMsg('自动签到成功，明天见 ✓');
+            else if (!r.ok && r.msg) toastMsg('自动签到：' + r.msg);
+        });
+    }
+
+    /* 签到提示（复用面板 toast，面板未就绪时静默降级） */
+    function toastMsg(msg) {
+        if (panelApi && typeof panelApi.toast === 'function') panelApi.toast(msg);
+    }
+
+    /* 刷新面板中的签到状态显示 */
+    function updateSignUI() {
+        if (panelApi && typeof panelApi.updateSign === 'function') panelApi.updateSign(signStatusInfo());
+    }
+
+    /* ================= 四、设置面板（Shadow DOM 隔离） ================= */
 
     var PANEL_ITEMS = [
         { key: 'modernize',   label: '现代化界面',        desc: '卡片化 / 深色模式 / 圆角阴影' },
@@ -453,7 +656,11 @@
         { key: 'rmKingRank',  label: '本书霸王票读者排行', desc: '书籍详情页的霸王票排行区块' },
         { key: 'rmComment',   label: '评论区',             desc: '阅读页评论表单 + 最新评论列表' },
         { key: 'rmActionBar', label: '收藏支持安利栏',     desc: '收藏/霸王票/营养液/空投月石/书评/安利/书签/分享' },
-        { key: 'rmOpenApp',   label: '打开App引导图',      desc: '详情页作者信息区的 open_app_img 竖条图' }
+        { key: 'rmOpenApp',   label: '打开App引导图',      desc: '详情页作者信息区的 open_app_img 竖条图' },
+        { sec: '每日签到' },
+        { key: 'autoSign',    label: '每日自动签到',        desc: '打开晋江页面即自动签到，每天最多一次' },
+        { key: 'signSilent',  label: '签到成功静默',        desc: '开启后签到成功不弹提示' },
+        { key: '__signBtn',   label: '手动签到',            desc: '立即执行一次签到请求' }
     ];
 
     var GEAR_SVG = '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h.09a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"></path></svg>';
@@ -508,6 +715,10 @@
         '.seg button{font-size:12px;padding:4px 10px;border-radius:6px;border:none;background:transparent;color:var(--p-text2);cursor:pointer;line-height:1.4}',
         '.seg button.on{background:var(--p-accent);color:#fff}',
         '.range{flex:none;width:118px;accent-color:var(--p-accent);cursor:pointer;margin:0}',
+        '.signbtn{flex:none;font-size:13px;padding:7px 18px;border-radius:10px;border:none;',
+        '  background:var(--p-accent);color:#fff;cursor:pointer;line-height:1.4;font-weight:600}',
+        '.signbtn:active{opacity:.8}',
+        '.signbtn[disabled]{opacity:.5;cursor:default}',
         '.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));',
         '  transform:translateX(-50%) translateY(8px);background:rgba(30,32,36,.93);color:#fff;',
         '  font-size:13px;padding:8px 16px;border-radius:999px;opacity:0;pointer-events:none;',
@@ -535,6 +746,13 @@
             var it = PANEL_ITEMS[i];
             if (it.sec) {
                 html.push('<div class="sec">' + it.sec + '</div>');
+                continue;
+            }
+            /* 手动签到：渲染为按钮行 */
+            if (it.key === '__signBtn') {
+                html.push('<div class="row"><div><div class="t">' + it.label + '</div>' +
+                    '<div class="d" id="signStatusText">状态读取中…</div></div>' +
+                    '<button type="button" class="signbtn" id="signNowBtn">签到</button></div>');
                 continue;
             }
             html.push('<div class="row"><div><div class="t">' + it.label + '</div>' +
@@ -635,6 +853,11 @@
                 } else if (key === 'unblock') {
                     applyUnblock(cfg.unblock);
                     showToast(cfg.unblock ? '已解除复制/右键限制' : '已恢复限制（复制需刷新生效）');
+                } else if (key === 'autoSign') {
+                    showToast(cfg.autoSign ? '每日自动签到：已开启' : '每日自动签到：已关闭');
+                    if (cfg.autoSign) autoSignOnce();
+                } else if (key === 'signSilent') {
+                    showToast(cfg.signSilent ? '签到成功后将不再提示' : '签到成功后会弹窗提示');
                 } else {
                     if (cfg[key]) {
                         cleanElements();
@@ -653,7 +876,43 @@
             return key;
         }
 
-        panelApi = { open: function () { togglePanel(true); } };
+        /* ---- 签到区 ---- */
+        var signBtnEl = $('signNowBtn');
+        var signStatusEl = $('signStatusText');
+        if (signBtnEl) {
+            signBtnEl.addEventListener('click', function () {
+                var info = signStatusInfo();
+                if (info.code === 'guest') {
+                    window.open('https://wap.jjwxc.net/login/', '_blank');
+                    return;
+                }
+                signBtnEl.setAttribute('disabled', '');
+                doSign(true);
+                setTimeout(function () { signBtnEl.removeAttribute('disabled'); }, 5000);
+            });
+        }
+
+        panelApi = {
+            open: function () { togglePanel(true); },
+            toast: showToast,
+            updateSign: function (info) {
+                if (signStatusEl) signStatusEl.textContent = info.text + ' · ' + info.tip;
+                if (signBtnEl) {
+                    if (info.code === 'done') {
+                        signBtnEl.textContent = '已签到';
+                        signBtnEl.setAttribute('disabled', '');
+                    } else if (info.code === 'guest') {
+                        signBtnEl.textContent = '去登录';
+                        signBtnEl.removeAttribute('disabled');
+                    } else {
+                        signBtnEl.textContent = '签到';
+                        signBtnEl.removeAttribute('disabled');
+                    }
+                }
+            }
+        };
+        /* 面板就绪后：刷新签到状态 */
+        updateSignUI();
     }
 
     function openPanel() {
@@ -684,6 +943,8 @@
         cleanElements();
         buildPanel();
         watchDom();
+        /* 每日自动签到：页面就绪后延迟执行，避开页面加载高峰 */
+        setTimeout(autoSignOnce, 1500);
     }
 
     if (document.readyState === 'loading') {
@@ -696,6 +957,10 @@
     try {
         if (typeof GM_registerMenuCommand === 'function') {
             GM_registerMenuCommand('⚙️ 打开设置面板', openPanel);
+            GM_registerMenuCommand('✅ 立即签到', function () {
+                openPanel();
+                doSign(true);
+            });
             GM_registerMenuCommand('↩️ 恢复默认设置', function () {
                 cfg = {};
                 for (var k in DEFAULT_CFG) cfg[k] = DEFAULT_CFG[k];
