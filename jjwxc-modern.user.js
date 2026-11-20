@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         晋江文学城手机版·现代化界面改造
 // @namespace    https://wap.jjwxc.net/
-// @version      1.4.1
+// @version      1.4.2
 // @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式（跟随系统/手动浅色/深色）、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏、打开App引导图等入口；支持解除复制/右键限制、自定义悬浮按钮透明度；支持每日自动签到一次（登录后自动完成，可手动签到）。
 // @author       WorkBuddy
 // @license      MIT
@@ -456,7 +456,7 @@
 
     var SIGN_STORE_KEY = 'jjjSignState';
     var SIGN_URL_PC = 'https://my.jjwxc.net/backend/signin.php';
-    var SIGN_URL_WAP = 'https://wap.jjwxc.net/my/signinIndex';
+    var SIGN_URL_WAP = 'https://wap.jjwxc.net/my/signIn';   /* 正确端点：signIn（抓包证实），JSON 响应 */
 
     function getCookie(name) {
         try {
@@ -555,10 +555,12 @@
     }
 
     /* 发起签到请求：
-     * - 有 PC 登录态（readerid+ubuntu）→ GM 跨域请求 PC 签到接口
-     * - 仅有 wap 登录态（sid）→ 用 fetch 请求同域 wap 签到页（浏览器自动带 cookie，
-     *   服务端可正常 set-cookie；credentials 同域默认 include）
-     * - 响应后统一以官方 user_signin_days cookie 校验结果 */
+     * 正确端点（抓包证实）：GET /my/signIn（注意大小写）+ Referer /my/signinIndex
+     *   + X-Requested-With: XMLHttpRequest，返回 JSON：code=200 签到成功（含
+     *   signdays 连续天数 / coins 月石），重复签到也返回 code=200 + "当天已经签到"
+     * wap 登录态（sid）：GM_xmlhttpRequest 直连本域 /my/signIn（TM 自动带 cookie）
+     * PC 登录态（readerid+ubuntu）：走 PC 接口 my.jjwxc.net/backend/signin.php
+     */
     function requestSign(cb) {
         if (hasPcSession() && typeof GM_xmlhttpRequest === 'function') {
             GM_xmlhttpRequest({
@@ -574,11 +576,31 @@
             });
             return;
         }
+        if (typeof GM_xmlhttpRequest === 'function') {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: SIGN_URL_WAP + '?autoSign=' + Date.now(),
+                timeout: 15000,
+                headers: {
+                    'Referer': 'https://wap.jjwxc.net/my/signinIndex',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                onload: function (res) {
+                    verifySignResponse(res.finalUrl || '', res.responseText || '', cb);
+                },
+                onerror: function () { cb({ ok: false, msg: '网络错误，签到请求失败' }); },
+                ontimeout: function () { cb({ ok: false, msg: '签到请求超时' }); }
+            });
+            return;
+        }
         if (typeof fetch === 'function') {
             fetch(SIGN_URL_WAP + '?autoSign=' + Date.now(), {
                 method: 'GET',
                 credentials: 'include',
-                redirect: 'follow'
+                redirect: 'follow',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
             }).then(function (res) {
                 var finalUrl = res.redirected ? (res.url || '') : '';
                 return res.text().then(function (body) {
@@ -593,23 +615,54 @@
     }
 
     /* 校验签到结果：登录跳转=失效；user_signin_days=成功；其余=已请求未确认 */
+    /* 校验签到结果：
+     * wap 端点返回 JSON：{"code":200,"message":"签到成功"/"当天已经签到...","data":{signdays,coins}}
+     * 兼容 PC 端点的 302/HTML 响应。 */
     function verifySignResponse(finalUrl, body, cb) {
         setTimeout(function () {
             var url = finalUrl || '';
+            /* 登录失效：302 到登录页 */
             if (url.indexOf('login') !== -1 || body.indexOf('login.php') !== -1 || body.indexOf('/my/login') !== -1) {
                 cb({ ok: false, msg: '登录已过期，请先重新登录晋江' });
                 return;
             }
+            /* wap JSON 端点：code=200 即成功（含重复签到的幂等响应） */
+            var json = null;
+            if (body && body.charAt(0) === '{') {
+                try { json = JSON.parse(body); } catch (e) { json = null; }
+            }
+            if (json && json.code === 200) {
+                var d = json.data || {};
+                var extra = '';
+                if (d.signdays) extra = '，已连签 ' + d.signdays + ' 天';
+                if (d.coins) extra += '，得 ' + d.coins + ' 月石';
+                cb({ ok: true, msg: decodeMsg(json.message) + extra });
+                return;
+            }
+            if (json && json.code !== undefined) {
+                cb({ ok: false, msg: decodeMsg(json.message) || ('签到失败（code ' + json.code + '）') });
+                return;
+            }
+            /* PC 端点等无 JSON：以官方 cookie 为准 */
             if (serverSignedToday()) {
                 cb({ ok: true, msg: '' });
                 return;
             }
-            /* wap 签到页可能直接返回已签到页面但 cookie 写入有延迟；再查一次 */
             setTimeout(function () {
                 if (serverSignedToday()) cb({ ok: true, msg: '' });
                 else cb({ ok: false, tried: true, msg: '已发送签到请求，请以官网页面为准' });
             }, 400);
         }, 250);
+    }
+
+    /* 解码 JSON 里的 \\uXXXX 转义（晋江 message 常用） */
+    function decodeMsg(s) {
+        if (typeof s !== 'string') return '';
+        try {
+            return s.replace(/\\u([0-9a-fA-F]{4})/g, function (_, h) {
+                return String.fromCharCode(parseInt(h, 16));
+            });
+        } catch (e) { return s; }
     }
 
     /* 执行签到：manual=true 为手动触发（无视静默提示） */
@@ -637,14 +690,15 @@
             });
             updateSignUI();
             if (r.ok) {
-                if (manual || !cfg.signSilent) toastMsg('签到成功，明天见 ✓');
+                var okMsg = r.msg ? ('签到成功：' + r.msg) : '签到成功，明天见 ✓';
+                if (manual || !cfg.signSilent) toastMsg(okMsg);
             } else {
                 toastMsg('签到：' + (r.msg || '未知结果'));
             }
         });
     }
 
-    /* 每日自动签到：每个自然日至多发起一次请求 */
+    /* 执行签到：manual=true 为手动触发（无视静默提示） */
     function autoSignOnce() {
         if (!cfg.autoSign) return;
         if (!isSignedIn()) return;                       /* 未登录：不请求 */
@@ -656,7 +710,6 @@
             }
             return;
         }
-        var local = loadSignState();
         var local = loadSignState();
         if (local.date === todayStr()) {
             if (local.ok) return;        /* 今日已确认成功 */
