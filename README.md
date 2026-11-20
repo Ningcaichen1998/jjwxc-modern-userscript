@@ -49,13 +49,18 @@
    **🚀 加速链接（jsDelivr CDN，推荐）**
    [`https://cdn.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js`](https://cdn.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js)
 
-   **🚀 加速备用（Statically CDN）**
-   [`https://cdn.statically.io/gh/Ningcaichen1998/jjwxc-modern-userscript/main/jjwxc-modern.user.js`](https://cdn.statically.io/gh/Ningcaichen1998/jjwxc-modern-userscript/main/jjwxc-modern.user.js)
+   **🚀 jsDelivr 备用节点（默认节点被墙/污染时使用）**
+   - Gcore：[`https://gcore.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js`](https://gcore.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js)
+   - TestingCF：[`https://testingcf.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js`](https://testingcf.jsdelivr.net/gh/Ningcaichen1998/jjwxc-modern-userscript@main/jjwxc-modern.user.js)
+
+   **🚀 GitHub 反代镜像（绕过直连限制）**
+   [`https://gh-proxy.com/https://raw.githubusercontent.com/Ningcaichen1998/jjwxc-modern-userscript/main/jjwxc-modern.user.js`](https://gh-proxy.com/https://raw.githubusercontent.com/Ningcaichen1998/jjwxc-modern-userscript/main/jjwxc-modern.user.js)
 
    **GitHub 直链（可能较慢）**
    [`https://raw.githubusercontent.com/Ningcaichen1998/jjwxc-modern-userscript/main/jjwxc-modern.user.js`](https://raw.githubusercontent.com/Ningcaichen1998/jjwxc-modern-userscript/main/jjwxc-modern.user.js)
 
    > 💡 脚本已内置 `@updateURL` 指向 jsDelivr 加速源，Tampermonkey 的「检查更新」也会走加速通道。
+   > jsDelivr 各节点同步新版本可能有数分钟延迟；急用最新版可用「GitHub 反代镜像」或「GitHub 直链」。
    > 若上述链接均无法访问，可下载仓库中的 `jjwxc-modern.user.js`，在 Tampermonkey 中新建脚本粘贴保存。
 
 3. 打开 [wap.jjwxc.net](https://wap.jjwxc.net/)，页面右下角出现 ⚙️ 悬浮按钮即安装成功
