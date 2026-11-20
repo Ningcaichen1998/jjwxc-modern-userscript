@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         晋江文学城手机版·现代化界面改造
 // @namespace    https://wap.jjwxc.net/
-// @version      1.4.0
+// @version      1.4.1
 // @description  现代化改造 wap.jjwxc.net：卡片化界面、深色模式（跟随系统/手动浅色/深色）、章节列表优化；可选去除 APP、反馈、高级搜索、千字收益榜、晋江论坛、小书喵悦读、本书霸王票读者排行、评论区、收藏支持安利栏、打开App引导图等入口；支持解除复制/右键限制、自定义悬浮按钮透明度；支持每日自动签到一次（登录后自动完成，可手动签到）。
 // @author       WorkBuddy
 // @license      MIT
@@ -446,19 +446,45 @@
     /* ================= 三、每日自动签到 ================= */
 
     /*
-     * 原理：晋江官方"去签到"入口就是 GET https://my.jjwxc.net/backend/signin.php（带登录 cookie）。
-     * 签到状态记录在 .jjwxc.net 域 cookie user_signin_days（格式：YYYYMMDD_readerid_1），
-     * wap.jjwxc.net 页面可直接读取；本地 GM 存储再做一层"每天最多请求一次"的兜底。
+     * 原理：晋江有两套登录体系——
+     *   wap 手机版：cookie sid（格式 readerid_xxx），签到入口 /my/signinIndex（服务端渲染）
+     *   PC 版：cookies readerid + ubuntu，签到入口 my.jjwxc.net/backend/signin.php
+     * 签到状态都记录在 .jjwxc.net 域 cookie user_signin_days（格式 YYYYMMDD_readerid_1）。
+     * 本脚本运行在 wap 站：优先判断 sid 登录态，走 wap 签到页（同域带 cookie）；
+     * 若浏览器同时有 PC 登录态则用 PC 接口。本地 GM 存储做"每天最多请求一次"兜底。
      */
 
     var SIGN_STORE_KEY = 'jjjSignState';
-    var SIGN_URL = 'https://my.jjwxc.net/backend/signin.php';
+    var SIGN_URL_PC = 'https://my.jjwxc.net/backend/signin.php';
+    var SIGN_URL_WAP = 'https://wap.jjwxc.net/my/signinIndex';
 
     function getCookie(name) {
         try {
             var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
             return m ? decodeURIComponent(m[1]) : null;
         } catch (e) { return null; }
+    }
+
+    /* 当前 readerid：wap 登录态从 sid 解析（格式 readerid_xxx），PC 登录态直接读 */
+    function getReaderId() {
+        var sid = getCookie('sid');
+        if (sid) {
+            var m = sid.match(/^(\d+)_/);
+            if (m) return m[1];
+        }
+        return getCookie('readerid');
+    }
+
+    /* 登录态：wap 的 sid 或 PC 的 readerid+ubuntu，任一存在即可 */
+    function isSignedIn() {
+        var sid = getCookie('sid');
+        if (sid && /^\d+_/.test(sid)) return true;
+        return !!(getCookie('readerid') && getCookie('ubuntu'));
+    }
+
+    /* 是否具备 PC 签到接口所需的完整登录态 */
+    function hasPcSession() {
+        return !!(getCookie('readerid') && getCookie('ubuntu'));
     }
 
     function todayStr() {
@@ -484,14 +510,9 @@
         storeSet(SIGN_STORE_KEY, JSON.stringify(st));
     }
 
-    /* 是否已登录（readerid + ubuntu 双 cookie） */
-    function isSignedIn() {
-        return !!(getCookie('readerid') && getCookie('ubuntu'));
-    }
-
     /* 官方 cookie 是否显示今天已签到（同名 cookie 可能多份：逐个检查） */
     function serverSignedToday() {
-        var readerid = getCookie('readerid');
+        var readerid = getReaderId();
         if (!readerid) return false;
         var found = [];
         try {
@@ -533,41 +554,62 @@
         return { code: 'none', text: '未签到', tip: '开启自动签到后，打开页面即自动完成' };
     }
 
-    /* 发起签到请求（跨域，带 cookie） */
+    /* 发起签到请求：
+     * - 有 PC 登录态（readerid+ubuntu）→ GM 跨域请求 PC 签到接口
+     * - 仅有 wap 登录态（sid）→ 用 fetch 请求同域 wap 签到页（浏览器自动带 cookie，
+     *   服务端可正常 set-cookie；credentials 同域默认 include）
+     * - 响应后统一以官方 user_signin_days cookie 校验结果 */
     function requestSign(cb) {
-        if (typeof GM_xmlhttpRequest !== 'function') {
-            cb({ ok: false, msg: '当前脚本管理器不支持 GM_xmlhttpRequest' });
+        if (hasPcSession() && typeof GM_xmlhttpRequest === 'function') {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: SIGN_URL_PC,
+                timeout: 15000,
+                headers: { 'Referer': 'https://wap.jjwxc.net/' },
+                onload: function (res) {
+                    verifySignResponse(res.finalUrl || '', res.responseText || '', cb);
+                },
+                onerror: function () { cb({ ok: false, msg: '网络错误，签到请求失败' }); },
+                ontimeout: function () { cb({ ok: false, msg: '签到请求超时' }); }
+            });
             return;
         }
-        GM_xmlhttpRequest({
-            method: 'GET',
-            url: SIGN_URL,
-            timeout: 15000,
-            headers: { 'Referer': 'https://wap.jjwxc.net/' },
-            onload: function (res) {
-                /* 稍等 Set-Cookie 写入 cookie jar 后再校验 */
-                setTimeout(function () {
-                    var finalUrl = res.finalUrl || '';
-                    var body = res.responseText || '';
-                    if (finalUrl.indexOf('login.php') !== -1 || body.indexOf('login.php') !== -1) {
-                        cb({ ok: false, msg: '登录已过期，请先重新登录晋江' });
-                        return;
-                    }
-                    if (serverSignedToday()) {
-                        cb({ ok: true, msg: '' });
-                        return;
-                    }
-                    /* 拿不到确认 cookie：按已请求处理，避免同日反复请求 */
-                    cb({ ok: false, tried: true, msg: '已发送签到请求，请以官网页面为准' });
-                }, 250);
-            },
-            onerror: function () {
+        if (typeof fetch === 'function') {
+            fetch(SIGN_URL_WAP + '?autoSign=' + Date.now(), {
+                method: 'GET',
+                credentials: 'include',
+                redirect: 'follow'
+            }).then(function (res) {
+                var finalUrl = res.redirected ? (res.url || '') : '';
+                return res.text().then(function (body) {
+                    verifySignResponse(finalUrl, body, cb);
+                });
+            }).catch(function () {
                 cb({ ok: false, msg: '网络错误，签到请求失败' });
-            },
-            ontimeout: function () {
-                cb({ ok: false, msg: '签到请求超时' });
+            });
+            return;
+        }
+        cb({ ok: false, msg: '当前环境不支持签到请求' });
+    }
+
+    /* 校验签到结果：登录跳转=失效；user_signin_days=成功；其余=已请求未确认 */
+    function verifySignResponse(finalUrl, body, cb) {
+        setTimeout(function () {
+            var url = finalUrl || '';
+            if (url.indexOf('login') !== -1 || body.indexOf('login.php') !== -1 || body.indexOf('/my/login') !== -1) {
+                cb({ ok: false, msg: '登录已过期，请先重新登录晋江' });
+                return;
             }
-        });
+            if (serverSignedToday()) {
+                cb({ ok: true, msg: '' });
+                return;
+            }
+            /* wap 签到页可能直接返回已签到页面但 cookie 写入有延迟；再查一次 */
+            setTimeout(function () {
+                if (serverSignedToday()) cb({ ok: true, msg: '' });
+                else cb({ ok: false, tried: true, msg: '已发送签到请求，请以官网页面为准' });
+            }, 400);
+        }, 250);
     }
 
     /* 执行签到：manual=true 为手动触发（无视静默提示） */
@@ -577,14 +619,14 @@
             return;
         }
         if (serverSignedToday()) {
-            var stOk = { date: todayStr(), reader: getCookie('readerid') || '', ok: true, msg: '' };
+            var stOk = { date: todayStr(), reader: getReaderId() || '', ok: true, msg: '' };
             saveSignState(stOk);
             updateSignUI();
             toastMsg('今天已经签到过了');
             return;
         }
         toastMsg('正在签到…');
-        var reader = getCookie('readerid') || '';
+        var reader = getReaderId() || '';
         requestSign(function (r) {
             saveSignState({
                 date: todayStr(),
@@ -609,20 +651,26 @@
         if (serverSignedToday()) {                       /* 官方已确认：同步本地状态即可 */
             var st = loadSignState();
             if (st.date !== todayStr() || !st.ok) {
-                saveSignState({ date: todayStr(), reader: getCookie('readerid') || '', ok: true, msg: '' });
+                saveSignState({ date: todayStr(), reader: getReaderId() || '', ok: true, msg: '' });
                 updateSignUI();
             }
             return;
         }
         var local = loadSignState();
-        if (local.date === todayStr()) return;           /* 今天已尝试过：不重复请求 */
-        var reader = getCookie('readerid') || '';
+        var local = loadSignState();
+        if (local.date === todayStr()) {
+            if (local.ok) return;        /* 今日已确认成功 */
+            if (local.retried) return;   /* 今日已重试过一次 */
+            /* 未确认/失败（如旧版误判、登录过期后重新登录）：允许重试一次 */
+        }
+        var reader = getReaderId() || '';
         requestSign(function (r) {
             saveSignState({
                 date: todayStr(),
                 reader: reader,
                 ok: !!r.ok,
                 tried: !!r.tried,
+                retried: !!(local.date === todayStr() && !local.ok),
                 msg: r.msg || ''
             });
             updateSignUI();
